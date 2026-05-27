@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 env:
-  RG: rg-orders-demo
-  LOCATION: westeurope
+  RG: rg-orders-demo-ne
+  LOCATION: northeurope
   APP_NAME: orders-api
   ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
 
@@ -30,27 +30,14 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Ensure resource group and Azure providers exist
+      - name: Show deployment context
         run: |
-          az group create --name "$RG" --location "$LOCATION"
-          az provider register --namespace Microsoft.App --wait
-          az provider register --namespace Microsoft.OperationalInsights --wait
-          az provider register --namespace Microsoft.ContainerRegistry --wait
+          echo "Resource group: $RG"
+          echo "Location: $LOCATION"
+          echo "App name: $APP_NAME"
+          echo "ACR name: $ACR_NAME"
 
-      - name: Deploy foundation infrastructure
-        run: |
-          az deployment group create \
-            --resource-group "$RG" \
-            --template-file infra/foundation.bicep \
-            --parameters location="$LOCATION" appName="$APP_NAME" acrName="$ACR_NAME"
-
-      - name: Enable ARM audience tokens for ACR managed-identity pulls
-        run: |
-          az acr config authentication-as-arm update \
-            --registry "$ACR_NAME" \
-            --status enabled
-
-      - name: Build and push Docker image tagged with commit SHA
+      - name: Build and push Docker image
         run: |
           az acr login --name "$ACR_NAME"
           IMAGE="$ACR_NAME.azurecr.io/$APP_NAME:${{ github.sha }}"
@@ -64,7 +51,7 @@ jobs:
             --template-file infra/app.bicep \
             --parameters location="$LOCATION" appName="$APP_NAME" acrName="$ACR_NAME" imageTag="${{ github.sha }}"
 
-      - name: Smoke test release
+      - name: Smoke test health endpoint
         run: |
           FQDN=$(az containerapp show \
             --resource-group "$RG" \
@@ -72,7 +59,7 @@ jobs:
             --query properties.configuration.ingress.fqdn \
             --output tsv)
 
-          echo "Testing https://$FQDN/health"
+          echo "App URL: https://$FQDN"
           curl -fsS "https://$FQDN/health"
 
       - name: Show active revisions
