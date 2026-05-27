@@ -1,129 +1,97 @@
-import express from "express";
-import crypto from "crypto";
+import http from "node:http";
+import { randomUUID } from "node:crypto";
 
-const app = express();
-const port = Number(process.env.PORT || 8080);
-const appName = process.env.APP_NAME || "orders-api";
-const revision = process.env.CONTAINER_APP_REVISION || "local";
+const port = process.env.PORT || 8080;
+const revision = process.env.CONTAINER_APP_REVISION || process.env.GITHUB_SHA || "local";
 
-app.use(express.json());
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sendJson(res, statusCode, body) {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json"
+  });
+  res.end(JSON.stringify(body, null, 2));
 }
 
 function logEvent(event) {
   console.log(JSON.stringify({
-    app: appName,
+    app: "orders-api",
     revision,
-    timestamp: new Date().toISOString(),
+    time: new Date().toISOString(),
     ...event
   }));
 }
 
-app.use((req, res, next) => {
+const server = http.createServer(async (req, res) => {
   const start = Date.now();
-  const requestId = req.headers["x-request-id"] || crypto.randomUUID();
-  res.setHeader("x-request-id", requestId);
+  const url = new URL(req.url, `http://${req.headers.host}`);
 
-  res.on("finish", () => {
+  try {
+    if (url.pathname === "/") {
+      sendJson(res, 200, {
+        service: "orders-api",
+        message: "Azure Container Apps demo API",
+        endpoints: ["/health", "/orders", "/dependency-demo", "/simulate-error"]
+      });
+    } else if (url.pathname === "/health") {
+      sendJson(res, 200, {
+        status: "ok",
+        service: "orders-api",
+        revision,
+        time: new Date().toISOString()
+      });
+    } else if (url.pathname === "/orders") {
+      sendJson(res, 200, {
+        orders: [
+          { id: 101, customer: "Contoso", status: "paid" },
+          { id: 102, customer: "Fabrikam", status: "processing" }
+        ]
+      });
+    } else if (url.pathname === "/dependency-demo") {
+      const dependencyMs = Math.floor(Math.random() * 900) + 100;
+
+      logEvent({
+        type: "dependency",
+        dependency: "payment-api",
+        dependency_ms: dependencyMs,
+        outcome: "success"
+      });
+
+      sendJson(res, 200, {
+        dependency: "payment-api",
+        dependency_ms: dependencyMs,
+        outcome: "success"
+      });
+    } else if (url.pathname === "/simulate-error") {
+      const errorId = randomUUID();
+
+      logEvent({
+        type: "error",
+        level: "ERROR",
+        error_id: errorId,
+        message: "Simulated checkout failure for diagnostics demo"
+      });
+
+      sendJson(res, 500, {
+        error: "Simulated checkout failure",
+        error_id: errorId
+      });
+    } else {
+      sendJson(res, 404, {
+        error: "Not found"
+      });
+    }
+  } finally {
     logEvent({
       type: "request",
-      request_id: requestId,
       method: req.method,
-      path: req.path,
-      status: res.statusCode,
+      path: url.pathname,
       duration_ms: Date.now() - start
     });
-  });
-
-  next();
+  }
 });
 
-app.get("/", (_req, res) => {
-  res.json({
-    service: appName,
-    message: "Azure Container Apps demo API",
-    endpoints: ["/health", "/orders", "/orders/:id", "/dependency-demo", "/simulate-error"]
-  });
-});
-
-app.get("/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    service: appName,
-    revision,
-    time: new Date().toISOString()
-  });
-});
-
-app.get("/orders", async (_req, res) => {
-  const dependencyMs = Math.floor(40 + Math.random() * 240);
-  await sleep(dependencyMs);
-
-  logEvent({
-    type: "dependency",
-    dependency: "orders-db",
-    dependency_ms: dependencyMs,
-    outcome: "success"
-  });
-
-  res.json({
-    count: 3,
-    orders: [
-      { id: "ord-1001", customer: "Contoso", status: "paid", total: 129.9 },
-      { id: "ord-1002", customer: "Fabrikam", status: "packed", total: 74.5 },
-      { id: "ord-1003", customer: "Northwind", status: "shipped", total: 212.0 }
-    ]
-  });
-});
-
-app.get("/orders/:id", (req, res) => {
-  res.json({
-    id: req.params.id,
-    status: "paid",
-    total: 129.9,
-    revision
-  });
-});
-
-app.get("/dependency-demo", async (_req, res) => {
-  const dependencyMs = Math.floor(200 + Math.random() * 1800);
-  await sleep(dependencyMs);
-
-  logEvent({
-    type: "dependency",
-    dependency: "payment-api",
-    dependency_ms: dependencyMs,
-    outcome: dependencyMs > 1400 ? "slow" : "success"
-  });
-
-  res.json({
-    dependency: "payment-api",
-    dependency_ms: dependencyMs,
-    status: dependencyMs > 1400 ? "slow" : "ok"
-  });
-});
-
-app.get("/simulate-error", (_req, res) => {
-  const errorId = crypto.randomUUID();
-
-  logEvent({
-    type: "error",
-    level: "ERROR",
-    error_id: errorId,
-    message: "Simulated checkout failure for diagnostics demo"
-  });
-
-  res.status(500).json({
-    error: "Simulated checkout failure",
-    error_id: errorId
-  });
-});
-
-app.listen(port, () => {
+server.listen(port, "0.0.0.0", () => {
   logEvent({
     type: "startup",
-    message: `${appName} listening on port ${port}`
+    message: `orders-api listening on port ${port}`
   });
 });
