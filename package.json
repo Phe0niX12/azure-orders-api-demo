@@ -1,0 +1,16 @@
+{
+  "name": "azure-orders-api-demo",
+  "version": "1.0.0",
+  "description": "Small Azure Container Apps demo API for architecture, CI/CD and diagnostics presentations.",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {}
+}

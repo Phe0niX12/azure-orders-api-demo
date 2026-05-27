@@ -1,0 +1,31 @@
+// Query 1: console errors by revision, resource-specific table style
+ContainerAppConsoleLogs
+| where TimeGenerated > ago(1h)
+| where ContainerAppName == "orders-api"
+| where Log has_any ("ERROR", "Exception", "Simulated checkout failure")
+| summarize errors=count() by RevisionName, bin(TimeGenerated, 5m)
+| order by TimeGenerated desc
+
+// Query 2: console errors by revision, legacy/custom table style
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+| where ContainerAppName_s == "orders-api"
+| where Log_s has_any ("ERROR", "Exception", "Simulated checkout failure")
+| summarize errors=count() by RevisionName_s, bin(TimeGenerated, 5m)
+| order by TimeGenerated desc
+
+// Query 3: dependency latency from JSON application logs, resource-specific table style
+ContainerAppConsoleLogs
+| where TimeGenerated > ago(1h)
+| where ContainerAppName == "orders-api"
+| extend payload = parse_json(Log)
+| where tostring(payload.type) == "dependency"
+| summarize p95_dependency_ms=percentile(todouble(payload.dependency_ms), 95) by bin(TimeGenerated, 15m)
+
+// Query 4: dependency latency from JSON application logs, legacy/custom table style
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+| where ContainerAppName_s == "orders-api"
+| extend payload = parse_json(Log_s)
+| where tostring(payload.type) == "dependency"
+| summarize p95_dependency_ms=percentile(todouble(payload.dependency_ms), 95) by bin(TimeGenerated, 15m)
